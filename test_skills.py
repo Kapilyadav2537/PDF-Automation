@@ -34,6 +34,7 @@ from skills import (
     merge_pdfs,
     split_pdf,
     add_watermark,
+    delete_pages,
 )
 
 # Import AI model wrapper from core package
@@ -173,8 +174,20 @@ def test_predefined_skills():
     assert watermark_out.exists(), "Watermarked output file not found"
     print("✔ add_watermark passed")
 
+    # -----------------------------------------------------------------------
+    # Skill 6: Delete Pages
+    # -----------------------------------------------------------------------
+    print(f"\n--- Skill 6: Delete Pages (Target: {doc_a.name}) ---")
+    doc_a_pages = len(PdfReader(str(doc_a)).pages)
+    deleted_out = RESULTS_DIR / f"{doc_a.stem}_page1_deleted.pdf"
+    res_del = delete_pages(doc_a, deleted_out, pages_to_delete=[1])
+    print(f"  {res_del}")
+    reader = PdfReader(str(deleted_out))
+    assert len(reader.pages) == max(1, doc_a_pages - 1), "Page deletion count mismatch"
+    print("✔ delete_pages passed")
+
     print("\n" + "=" * 65)
-    print("ALL 5 PREDEFINED PDF SKILLS TESTED SUCCESSFULLY!")
+    print("ALL 6 PREDEFINED PDF SKILLS TESTED SUCCESSFULLY!")
     print(f"Output files saved to: {RESULTS_DIR}")
     print("=" * 65)
 
