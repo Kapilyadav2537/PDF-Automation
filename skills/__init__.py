@@ -5,35 +5,51 @@ PDF Modification Skills Package
 
 PURPOSE:
 --------
-Exports the predefined PDF modification skills and the central registry:
+Single source of truth for PDF skills, shared by the Gemini (`main.py`) and
+Claude (`pdf_agent.py`) backends:
 - `registry`: Global SkillRegistry instance tracking all tools.
-- `extract_text`: Plain text extraction from pages.
-- `rotate_pages`: Clockwise page rotation (90, 180, 270 degrees).
-- `merge_pdfs`: Concatenates multiple PDF files into one.
-- `split_pdf`: Extracts page ranges into a new document.
-- `add_watermark`: Semi-transparent diagonal text stamping.
-- `delete_pages`: Deletes specified pages from a document.
+- `Ctx`: Sandboxed execution context (inputs in workdir, outputs in outdir).
+- `parse_page_ranges`: Shared 1-based page-spec parser.
+- `extract_text`, `rotate_pages`, `merge_pdfs`, `split_pdf`, `split_pdf_into_parts`,
+  `add_watermark`, `delete_pages`, `encrypt_pdf`, `decrypt_pdf`, `pdf_info`, `clarify`.
 =============================================================================
 """
 
-from .base import registry, Skill, SkillRegistry
+from .base import registry, Skill, SkillError, SkillRegistry
+from .pages import parse_page_ranges
+from .sandbox import Ctx, claim_output, mask_secrets
 from .pdf_skills import (
     extract_text,
     rotate_pages,
     merge_pdfs,
     split_pdf,
+    split_pdf_into_parts,
     add_watermark,
     delete_pages,
+    encrypt_pdf,
+    decrypt_pdf,
+    pdf_info,
+    clarify,
 )
 
 __all__ = [
     "registry",
     "Skill",
+    "SkillError",
     "SkillRegistry",
+    "Ctx",
+    "claim_output",
+    "mask_secrets",
+    "parse_page_ranges",
     "extract_text",
     "rotate_pages",
     "merge_pdfs",
     "split_pdf",
+    "split_pdf_into_parts",
     "add_watermark",
     "delete_pages",
+    "encrypt_pdf",
+    "decrypt_pdf",
+    "pdf_info",
+    "clarify",
 ]
