@@ -51,7 +51,11 @@ class Ctx:
             raise SkillError(f"'{name}' is outside the working directory")
         if not raw.is_absolute() and raw.name not in ("", ".", ".."):
             # e.g. 'output/a.pdf' from a planner: look for the bare filename in the root it names
-            allowed += [(r / raw.name).resolve() for r in roots if raw.parent.parts == (r.name,)]
+            prefix = raw.parent.parts
+            named = [r for r in roots if prefix == (r.name,)]
+            if prefix == ("output",) and self.outdir not in named:
+                named.append(self.outdir)  # planners say 'output/' even when --out points elsewhere
+            allowed += [(r / raw.name).resolve() for r in named]
         for p in allowed:
             if p.is_file():
                 return p
