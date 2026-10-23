@@ -8,8 +8,8 @@ PURPOSE:
 This module acts as the "brain" connecting Google's Gemini LLM to the PDF
 modification tool. It:
 1. Securely initializes the Gemini API client using the API key loaded from .env.
-2. Supports both the modern Google GenAI SDK (`google-genai` with Interactions API)
-   and the classic SDK (`google-generativeai`).
+2. Uses the Google GenAI SDK (`google-genai`), via the Interactions API when
+   available and `models.generate_content` otherwise.
 3. Sends natural language user prompts and available PDF modification skills
    to Gemini so the AI can decide which skills and parameters to execute.
 4. Tells the user if no skill exists to fulfill their prompt (e.g., audio/OCR).
@@ -34,8 +34,7 @@ class GeminiPDFModel:
     client : object
         The active Google GenAI SDK client instance.
     sdk_type : str
-        Human-readable label indicating which SDK was detected ('google-genai (v1+)'
-        or 'google-generativeai (legacy)').
+        Human-readable label indicating which SDK was detected ('google-genai (v1+)').
     """
 
     def __init__(
@@ -83,38 +82,17 @@ class GeminiPDFModel:
 
     def _init_client(self):
         """
-        Internal helper: Instantiates the official Google GenAI client.
-
-        Tries modern SDK first:
-        - `from google import genai`: Modern Google GenAI SDK (v1+)
-        
-        Falls back to legacy SDK:
-        - `import google.generativeai as genai_legacy`: Classic SDK
+        Internal helper: Instantiates the official Google GenAI client
+        (`from google import genai`, the `google-genai` package).
         """
         if not self.is_configured():
             return
 
-        # -------------------------------------------------------------------
-        # Option A: Modern google-genai SDK (v1+)
-        # -------------------------------------------------------------------
         try:
             from google import genai
             # client initialized with explicit API key
             self.client = genai.Client(api_key=self.api_key)
             self.sdk_type = "google-genai (v1+)"
-            return
-        except ImportError:
-            pass
-
-        # -------------------------------------------------------------------
-        # Option B: Fallback to classic google-generativeai SDK
-        # -------------------------------------------------------------------
-        try:
-            import google.generativeai as genai_legacy
-            genai_legacy.configure(api_key=self.api_key)
-            self.client = genai_legacy.GenerativeModel(self.model_name)
-            self.sdk_type = "google-generativeai (legacy)"
-            return
         except ImportError:
             self.sdk_type = None
 
@@ -125,7 +103,6 @@ class GeminiPDFModel:
         Handles:
         1. Modern Interactions API: `client.interactions.create()` (Recommended for 3.8 flash)
         2. Modern Models API: `client.models.generate_content()`
-        3. Legacy API: `client.generate_content()`
         """
         if self.sdk_type == "google-genai (v1+)":
             # 1. Try modern Interactions API if supported by the installed library
@@ -153,9 +130,6 @@ class GeminiPDFModel:
 
             raise RuntimeError("google-genai client does not have interactions or models endpoints.")
 
-        elif self.sdk_type == "google-generativeai (legacy)":
-            response = self.client.generate_content(prompt)
-            return response.text.strip()
         else:
             raise RuntimeError("Gemini SDK not installed. Please run: pip install google-genai")
 

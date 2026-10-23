@@ -25,7 +25,7 @@ from typing import List, Dict, Any, Optional
 from pypdf import PdfReader
 
 # Import skill registry and AI model loader
-from skills import registry
+from skills import registry, Ctx, SkillError, mask_secrets
 from core import GeminiPDFModel
 
 # ---------------------------------------------------------------------------
@@ -34,6 +34,11 @@ from core import GeminiPDFModel
 PROJECT_ROOT = Path(__file__).resolve().parent
 TESTPDFS_DIR = PROJECT_ROOT / "testpdfs"   # Directory for user's input/source PDFs
 OUTPUT_DIR = PROJECT_ROOT / "output"       # Directory for resultant/modified PDFs
+
+
+def make_sandbox() -> Ctx:
+    """Inputs must live in 'testpdfs/' (or 'output/' for chaining); outputs are confined to 'output/'."""
+    return Ctx(TESTPDFS_DIR, OUTPUT_DIR, overwrite=True)
 
 
 def display_banner():
@@ -189,6 +194,11 @@ def select_target_pdfs(last_generated: Optional[str] = None) -> List[Dict[str, A
                 print(f"❌ File does not exist: '{custom_path}'. Try again.")
                 continue
             try:
+                make_sandbox().src(Path(custom_path).resolve())
+            except SkillError:
+                print(f"❌ '{custom_path}' is outside 'testpdfs/' and 'output/'. Copy it into 'testpdfs/' first.")
+                continue
+            try:
                 reader = PdfReader(custom_path)
                 pages = len(reader.pages)
             except Exception:
@@ -268,7 +278,7 @@ def show_plan_and_parameters(plan_result: Dict[str, Any]) -> bool:
         if explanation:
             print(f"  • Action: {explanation}")
         print("  • Set Parameters:")
-        for k, v in params.items():
+        for k, v in mask_secrets(params).items():
             print(f"      {k:<18} = {repr(v)}")
         print("-" * 72)
     print("═" * 72)
@@ -281,16 +291,16 @@ def execute_plan(steps: List[Dict[str, Any]]) -> Optional[str]:
 
     Process:
     --------
-    1. Looks up each skill by name in `registry`.
-    2. Ensures output filepaths are routed to `output/`.
-    3. Calls `skill.execute(**params)`.
-    4. Tracks the final output file produced.
-    5. Optionally offers to copy the resulting PDF to 'testpdfs/' for future operations.
+    1. Looks up each skill by name in `registry` and validates its parameters.
+    2. Runs it inside the sandbox: inputs must live in 'testpdfs/' (or 'output/'),
+       outputs are confined to 'output/'.
+    3. Tracks the final PDF produced.
+    4. Optionally offers to copy the resulting PDF to 'testpdfs/' for future operations.
 
     :param steps: Ordered list of step dictionaries from Gemini's plan.
     :return: Path string to the final resultant PDF, or None if failed.
     """
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    ctx = make_sandbox()
     print("\n[Executing Planned Skills]...")
     last_output = None
 
@@ -305,16 +315,12 @@ def execute_plan(steps: List[Dict[str, Any]]) -> Optional[str]:
 
         print(f"\n▶ Executing Step {idx}: {skill_name}...")
         try:
-            # Route relative output paths to the project OUTPUT_DIR
-            if "output_pdf_path" in params:
-                out_path = Path(params["output_pdf_path"])
-                if not out_path.is_absolute():
-                    params["output_pdf_path"] = str(PROJECT_ROOT / out_path)
-                last_output = params["output_pdf_path"]
-
-            # Execute the function dynamically via registry
-            result = skill.execute(**params)
+            skill.validate(params)
+            result, written = ctx.run(skill, params)
             print(f"  ✔ {result}")
+            pdfs = [p for p in written if p.suffix.lower() == ".pdf"]
+            if pdfs:
+                last_output = str(pdfs[-1])
         except Exception as e:
             print(f"  ❌ Execution failed in Step {idx}: {e}")
             return None
