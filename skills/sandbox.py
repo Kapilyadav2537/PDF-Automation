@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from .base import Skill, SkillError
 
@@ -33,7 +33,9 @@ class Ctx:
     workdir: Path
     outdir: Path
     overwrite: bool = False
+    strict_pages: bool = False
     written: List[Path] = field(default_factory=list)
+    _step_written: Set[Path] = field(default_factory=set, repr=False)
 
     def __post_init__(self):
         self.workdir = Path(self.workdir).resolve()
@@ -47,9 +49,9 @@ class Ctx:
         allowed = [p for p in candidates if any(_inside(p, r) for r in roots)]
         if not allowed:
             raise SkillError(f"'{name}' is outside the working directory")
-        if not raw.is_absolute():
-            # e.g. 'output/a.pdf' from a planner: fall back to the bare filename in each root
-            allowed += [(r / raw.name).resolve() for r in roots if raw.name not in ("", ".", "..")]
+        if not raw.is_absolute() and raw.name not in ("", ".", ".."):
+            # e.g. 'output/a.pdf' from a planner: look for the bare filename in the root it names
+            allowed += [(r / raw.name).resolve() for r in roots if raw.parent.parts == (r.name,)]
         for p in allowed:
             if p.is_file():
                 return p
@@ -70,8 +72,9 @@ class Ctx:
         p = Path(path).resolve()
         if not _inside(p, self.outdir) or p == self.outdir:
             raise SkillError(f"Refusing to write outside the output directory: {path}")
-        if p.exists() and not self.overwrite and p not in self.written:
+        if p.exists() and not self.overwrite and p not in self._step_written:
             raise SkillError(f"{p.name} already exists (use --overwrite)")
+        self._step_written.add(p)
         if p not in self.written:
             self.written.append(p)
         return p
@@ -104,9 +107,16 @@ class Ctx:
                 args[key] = str(self.dst(value))
 
         start = len(self.written)
+        self._step_written = set()
         with self.activate():
             result = skill.execute(**args)
         return result, self.written[start:]
+
+
+def strict_pages() -> bool:
+    """Whether the active sandbox wants strict page parsing (keep order/duplicates, reject out-of-range)."""
+    ctx = _ACTIVE.get()
+    return bool(ctx and ctx.strict_pages)
 
 
 def claim_output(path: Union[str, Path]) -> str:

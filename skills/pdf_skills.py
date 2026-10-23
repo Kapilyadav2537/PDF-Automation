@@ -36,7 +36,7 @@ from reportlab.lib.colors import Color
 
 from .base import registry, SkillError
 from .pages import parse_page_ranges
-from .sandbox import claim_output
+from .sandbox import claim_output, strict_pages
 
 PathLike = Union[str, os.PathLike]
 Pages = Optional[Union[List[int], str]]
@@ -92,7 +92,7 @@ def extract_text(
     :return: Extracted text formatted with '--- Page X ---' headers (or a summary if saved to a file).
     """
     reader = _open_pdf(input_pdf_path, password)
-    target_indices = parse_page_ranges(pages, len(reader.pages))
+    target_indices = parse_page_ranges(pages, len(reader.pages), strict=strict_pages())
 
     output = []
     has_text = False
@@ -145,7 +145,7 @@ def rotate_pages(
     writer = PdfWriter()
 
     # 0-based indices of pages that should be rotated
-    rotate_indices = set(parse_page_ranges(pages, len(reader.pages)))
+    rotate_indices = set(parse_page_ranges(pages, len(reader.pages), strict=strict_pages()))
 
     for idx, page in enumerate(reader.pages):
         if idx in rotate_indices:
@@ -222,7 +222,7 @@ def split_pdf(
     :return: Informational success message.
     """
     reader = _open_pdf(input_pdf_path, password)
-    indices = parse_page_ranges(page_range, len(reader.pages))
+    indices = parse_page_ranges(page_range, len(reader.pages), strict=strict_pages())
 
     if not indices:
         raise ValueError(f"No valid pages found matching range '{page_range}'. Total pages: {len(reader.pages)}")
@@ -311,7 +311,7 @@ def add_watermark(
     """
     reader = _open_pdf(input_pdf_path, password)
     writer = PdfWriter()
-    target_indices = set(parse_page_ranges(pages, len(reader.pages)))
+    target_indices = set(parse_page_ranges(pages, len(reader.pages), strict=strict_pages()))
 
     for idx, page in enumerate(reader.pages):
         if idx in target_indices:
@@ -378,7 +378,7 @@ def delete_pages(
     total_pages = len(reader.pages)
 
     # Convert 1-indexed delete requests to 0-indexed internal indices
-    delete_indices = set(parse_page_ranges(pages_to_delete, total_pages)) if pages_to_delete else set()
+    delete_indices = set(parse_page_ranges(pages_to_delete, total_pages, strict=strict_pages())) if pages_to_delete else set()
 
     if not delete_indices:
         raise ValueError(f"No matching pages found in delete list {pages_to_delete}. Total pages: {total_pages}")

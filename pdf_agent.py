@@ -42,7 +42,8 @@ SYSTEM = """You route PDF requests to tools. Rules:
 - Choose the fewest tool calls that fulfil the request. Use only files listed under AVAILABLE FILES.
 - Pass input files by filename exactly as listed; output paths are plain filenames (written to the output folder).
 - If steps are chained, give each intermediate an explicit output filename and reuse it as the next step's input.
-- Never invent passwords, filenames or page ranges. If something required is missing, call `clarify`.
+- If the user names no output file, pick a short descriptive one (e.g. 'scan_rotated.pdf').
+- Never invent input files, passwords or page ranges. If something required is missing, call `clarify`.
 - Pages are 1-based. Copy values the user states exactly."""
 
 
@@ -64,7 +65,7 @@ def llm_plan(request: str, workdir: Path, model: str) -> list[dict]:
             files.append(f"{p.name} (unreadable or encrypted)")
     resp = anthropic.Anthropic().messages.create(
         model=model, max_tokens=1024, system=SYSTEM, tools=anthropic_tools(), tool_choice={"type": "any"},
-        messages=[{"role": "user", "content": f"AVAILABLE FILES:\n" + ("\n".join(files) or "(none)")
+        messages=[{"role": "user", "content": "AVAILABLE FILES:\n" + ("\n".join(files) or "(none)")
                    + f"\n\nREQUEST: {request}"}],
     )
     return [{"skill": b.name, "args": dict(b.input)} for b in resp.content if b.type == "tool_use"]
@@ -99,11 +100,31 @@ def apply_overrides(step: dict, overrides: dict[str, str]) -> None:
             step["args"][k] = coerce(v, props[k])
 
 
+def apply_default_outputs(step: dict) -> None:
+    """Fill a missing required output path with '<first input stem>_<skill>.pdf'."""
+    skill = registry.get_skill(step["skill"])
+    args = step["args"]
+    first = next((args[k] for k in skill.input_params if args.get(k)), None)
+    if isinstance(first, (list, tuple)):
+        first = first[0] if first else None
+    stem = Path(str(first)).stem if first else "output"
+    for key in skill.output_params:
+        if key in skill.required and not args.get(key):
+            ext = ".txt" if "txt" in key else ".pdf"
+            args[key] = f"{stem}_{skill.name}{ext}"
+
+
 def validate(step: dict) -> None:
     skill = registry.get_skill(step["skill"])
     if not skill:
         raise SkillError(f"Unknown skill '{step['skill']}'")
     skill.validate(step["args"])
+
+
+def writes_files(step: dict) -> bool:
+    """Destructive skills, or any step given an (optional) output path, need confirmation."""
+    skill = registry.get_skill(step["skill"])
+    return skill.destructive or any(step["args"].get(k) for k in skill.output_params)
 
 
 def show_plan(plan: list[dict]) -> None:
@@ -154,7 +175,7 @@ def main() -> int:
         ap.error("give a request or --plan")
 
     workdir = Path(a.dir).resolve()
-    ctx = Ctx(workdir, Path(a.out).resolve() if a.out else workdir / "output", a.overwrite)
+    ctx = Ctx(workdir, Path(a.out).resolve() if a.out else workdir / "output", a.overwrite, strict_pages=True)
 
     try:
         overrides = dict(p.split("=", 1) for p in a.param)
@@ -168,6 +189,7 @@ def main() -> int:
                 raise SkillError(f"Unknown skill '{step['skill']}'")
             step.setdefault("args", {})
             apply_overrides(step, overrides)
+            apply_default_outputs(step)
             validate(step)
     except SkillError as e:
         print(f"✗ {e}")
@@ -177,7 +199,7 @@ def main() -> int:
     show_plan(plan)
     if a.dry_run:
         return 0
-    if any(registry.get_skill(s["skill"]).destructive for s in plan) and not a.yes:
+    if any(writes_files(s) for s in plan) and not a.yes:
         if input("Run? [y/N] ").strip().lower() != "y":
             print("Cancelled.")
             return 1
