@@ -298,11 +298,12 @@ def execute_plan(steps: List[Dict[str, Any]]) -> Optional[str]:
     4. Optionally offers to copy the resulting PDF to 'testpdfs/' for future operations.
 
     :param steps: Ordered list of step dictionaries from Gemini's plan.
-    :return: Path string to the final resultant PDF, or None if failed.
+    :return: Path string to the final resultant PDF, or None if failed or no PDF was produced.
     """
     ctx = make_sandbox()
     print("\n[Executing Planned Skills]...")
     last_output = None
+    all_written: List[Path] = []
 
     for idx, step in enumerate(steps, 1):
         skill_name = step.get("skill")
@@ -318,6 +319,7 @@ def execute_plan(steps: List[Dict[str, Any]]) -> Optional[str]:
             skill.validate(params)
             result, written = ctx.run(skill, params)
             print(f"  ✔ {result}")
+            all_written += written
             pdfs = [p for p in written if p.suffix.lower() == ".pdf"]
             if pdfs:
                 last_output = str(pdfs[-1])
@@ -337,6 +339,8 @@ def execute_plan(steps: List[Dict[str, Any]]) -> Optional[str]:
             print(f"  ✔ Copied to: {dest}")
 
         return last_output
+    if all_written:
+        print("\n🎉 Finished! Output written to:\n   " + "\n   ".join(str(p) for p in all_written))
     return None
 
 

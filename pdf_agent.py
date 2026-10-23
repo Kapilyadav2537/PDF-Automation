@@ -121,6 +121,12 @@ def validate(step: dict) -> None:
     skill.validate(step["args"])
 
 
+def writes_files(step: dict) -> bool:
+    """Destructive skills, or any step given an (optional) output path, need confirmation."""
+    skill = registry.get_skill(step["skill"])
+    return skill.destructive or any(step["args"].get(k) for k in skill.output_params)
+
+
 def show_plan(plan: list[dict]) -> None:
     for i, s in enumerate(plan, 1):
         print(f"  {i}. {s['skill']}  {json.dumps(mask_secrets(s['args']))}")
@@ -193,7 +199,7 @@ def main() -> int:
     show_plan(plan)
     if a.dry_run:
         return 0
-    if any(registry.get_skill(s["skill"]).destructive for s in plan) and not a.yes:
+    if any(writes_files(s) for s in plan) and not a.yes:
         if input("Run? [y/N] ").strip().lower() != "y":
             print("Cancelled.")
             return 1
